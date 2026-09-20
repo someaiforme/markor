@@ -17,6 +17,7 @@ import androidx.documentfile.provider.DocumentFile;
 import net.gsantner.markor.frontend.MarkorDialogFactory;
 import net.gsantner.markor.util.MarkorContextUtils;
 import net.gsantner.opoc.util.GsFileUtils;
+import net.gsantner.opoc.wrapper.GsCallback;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -105,8 +106,18 @@ public class WrMarkorSingleton {
     }
 
     public void deleteSelectedItems(final Collection<File> files, final Context context) {
+        deleteSelectedItems(files, context, null);
+    }
+
+    public void deleteSelectedItems(
+            final Collection<File> files,
+            final Context context,
+            final GsCallback.a1<File> onDeleted
+    ) {
         for (final File file : files) {
-            deleteFile(file, context);
+            if (deleteFile(file, context) && onDeleted != null) {
+                onDeleted.callback(file);
+            }
         }
     }
 
@@ -115,6 +126,16 @@ public class WrMarkorSingleton {
     }
 
     public void moveOrCopySelected(final List<File> files, final File destDir, final Activity activity, final boolean isMove) {
+        moveOrCopySelected(files, destDir, activity, isMove, null);
+    }
+
+    public void moveOrCopySelected(
+            final List<File> files,
+            final File destDir,
+            final Activity activity,
+            final boolean isMove,
+            final GsCallback.a2<File, File> onMoved
+    ) {
         if (destDir.isDirectory()) {
             boolean allSane = true;
             for (final File file : files) {
@@ -124,23 +145,34 @@ public class WrMarkorSingleton {
             if (allSane) {
                 final Stack<File> _files = new Stack<>();
                 _files.addAll(files);
-                _moveOrCopySelected(_files, destDir, activity, isMove, ConflictResolution.ASK, false);
+                _moveOrCopySelected(_files, destDir, activity, isMove, ConflictResolution.ASK, false, onMoved);
                 return;
             }
         }
     }
 
-    private void _moveOrCopySelected(final Stack<File> files, final File destDir, final Activity activity, final boolean isMove, ConflictResolution resolution, boolean preserveResolution) {
+    private void _moveOrCopySelected(
+            final Stack<File> files,
+            final File destDir,
+            final Activity activity,
+            final boolean isMove,
+            ConflictResolution resolution,
+            boolean preserveResolution,
+            final GsCallback.a2<File, File> onMoved
+    ) {
         while (!files.empty()) {
             final File file = files.pop();
             final File dest = new File(destDir, file.getName());
             if (dest.exists()) {
                 // Special case - duplicate the file with new name if copying to same directory
                 if (resolution == ConflictResolution.KEEP_BOTH || (!isMove && file.equals(dest))) {
-                    moveOrCopy(activity, file, GsFileUtils.findNonConflictingDest(destDir, file.getName()), isMove);
+                    final File uniqueDest = GsFileUtils.findNonConflictingDest(destDir, file.getName());
+                    if (moveOrCopy(activity, file, uniqueDest, isMove) && isMove && onMoved != null) {
+                        onMoved.callback(file, uniqueDest);
+                    }
                 } else if (resolution == ConflictResolution.OVERWRITE) {
-                    if (deleteFile(dest, activity)) {
-                        moveOrCopy(activity, file, dest, isMove);
+                    if (deleteFile(dest, activity) && moveOrCopy(activity, file, dest, isMove) && isMove && onMoved != null) {
+                        onMoved.callback(file, dest);
                     }
                 } else if (resolution == ConflictResolution.ASK) {
                     // Put the file back in
@@ -154,22 +186,24 @@ public class WrMarkorSingleton {
                         } else if (option == 2 || option == 5) {
                             res = ConflictResolution.SKIP;
                         }
-                        _moveOrCopySelected(files, destDir, activity, isMove, res, option > 2);
+                        _moveOrCopySelected(files, destDir, activity, isMove, res, option > 2, onMoved);
                     });
                     return; // Process will be continued by callback
                 }
                 resolution = preserveResolution ? resolution : ConflictResolution.ASK;
             } else {
-                moveOrCopy(activity, file, dest, isMove);
+                if (moveOrCopy(activity, file, dest, isMove) && isMove && onMoved != null) {
+                    onMoved.callback(file, dest);
+                }
             }
         }
     }
 
-    private void moveOrCopy(final Context context, final File src, final File dest, final boolean isMove) {
+    private boolean moveOrCopy(final Context context, final File src, final File dest, final boolean isMove) {
         if (isMove) {
-            moveFile(src, dest, context);
+            return moveFile(src, dest, context);
         } else {
-            copyFile(src, dest);
+            return copyFile(src, dest);
         }
     }
 
