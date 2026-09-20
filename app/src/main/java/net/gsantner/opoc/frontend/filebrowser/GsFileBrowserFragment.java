@@ -48,6 +48,7 @@ import net.gsantner.markor.frontend.MarkorDialogFactory;
 import net.gsantner.markor.frontend.filebrowser.MarkorFileBrowserFactory;
 import net.gsantner.markor.frontend.filesearch.FileSearchEngine;
 import net.gsantner.markor.model.AppSettings;
+import net.gsantner.markor.util.FileColors;
 import net.gsantner.markor.util.MarkorContextUtils;
 import net.gsantner.opoc.frontend.GsSearchOrCustomTextDialog;
 import net.gsantner.opoc.frontend.base.GsFragmentBase;
@@ -267,6 +268,7 @@ public class GsFileBrowserFragment extends GsFragmentBase<GsSharedPreferencesPro
             _fragmentMenu.findItem(R.id.action_delete_selected_items).setVisible((selMulti1 || selMultiMore) && selWritable);
             _fragmentMenu.findItem(R.id.action_rename_selected_item).setVisible(selMulti1 && selWritable & !selInVirtualDirectory);
             _fragmentMenu.findItem(R.id.action_info_selected_item).setVisible(selMulti1);
+            _fragmentMenu.findItem(R.id.action_set_color).setVisible(selMultiAny);
             _fragmentMenu.findItem(R.id.action_move_selected_items).setVisible((selMulti1 || selMultiMore) && selWritable && !selInVirtualDirectory && !_cu.isUnderStorageAccessFolder(getContext(), getCurrentFolder(), true));
             _fragmentMenu.findItem(R.id.action_copy_selected_items).setVisible((selMulti1 || selMultiMore) && selWritable && !_cu.isUnderStorageAccessFolder(getContext(), getCurrentFolder(), true));
             _fragmentMenu.findItem(R.id.action_share_files).setVisible(selFilesOnly && (selMulti1 || selMultiMore) && !_cu.isUnderStorageAccessFolder(getContext(), getCurrentFolder(), true));
@@ -425,7 +427,11 @@ public class GsFileBrowserFragment extends GsFragmentBase<GsSharedPreferencesPro
                         null,
                         GsCollectionUtils.map(_filesystemViewerAdapter.getCurrentSelection(), File::getName),
                         () -> new Thread(() -> {
-                            WrMarkorSingleton.getInstance().deleteSelectedItems(currentSelection, getContext());
+                            WrMarkorSingleton.getInstance().deleteSelectedItems(
+                                    currentSelection,
+                                    getContext(),
+                                    file -> _filesystemViewerAdapter.getFileColors().removeTree(file)
+                            );
                             _recyclerList.post(() -> _filesystemViewerAdapter.reloadCurrentFolder());
                         }).start()
                 );
@@ -457,10 +463,26 @@ public class GsFileBrowserFragment extends GsFragmentBase<GsSharedPreferencesPro
                 }
                 return true;
             }
+            case R.id.action_set_color: {
+                if (_filesystemViewerAdapter.areItemsSelected()) {
+                    final List<File> selected = new ArrayList<>();
+                    for (final File f : currentSelection) {
+                        selected.add(_filesystemViewerAdapter.resolveVirtualFile(f));
+                    }
+                    // Colors are stored first; unselectAll() then rebinds the selected rows so they show the new color
+                    FileColors.showPicker(getContext(), selected, _filesystemViewerAdapter.getFileColors(),
+                            () -> _filesystemViewerAdapter.unselectAll());
+                }
+                return true;
+            }
             case R.id.action_rename_selected_item: {
                 if (_filesystemViewerAdapter.areItemsSelected()) {
                     final File file = currentSelection.iterator().next();
-                    final WrRenameDialog renameDialog = WrRenameDialog.newInstance(file, renamedFile -> reloadCurrentFolder());
+                    final WrRenameDialog renameDialog = WrRenameDialog.newInstance(file, renamedFile -> {
+                        // Keep the file's color across renames
+                        _filesystemViewerAdapter.getFileColors().move(file, renamedFile);
+                        reloadCurrentFolder();
+                    });
                     renameDialog.show(getChildFragmentManager(), WrRenameDialog.FRAGMENT_TAG);
                 }
                 return true;
@@ -593,7 +615,13 @@ public class GsFileBrowserFragment extends GsFragmentBase<GsSharedPreferencesPro
             @Override
             public void onFsViewerSelected(String request, File file, Integer lineNumber) {
                 super.onFsViewerSelected(request, file, null);
-                WrMarkorSingleton.getInstance().moveOrCopySelected(files, file, getActivity(), isMove);
+                WrMarkorSingleton.getInstance().moveOrCopySelected(
+                        files,
+                        file,
+                        getActivity(),
+                        isMove,
+                        isMove ? (source, destination) -> _filesystemViewerAdapter.getFileColors().moveTree(source, destination) : null
+                );
                 _filesystemViewerAdapter.unselectAll();
                 _filesystemViewerAdapter.reloadCurrentFolder();
             }

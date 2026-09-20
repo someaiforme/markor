@@ -22,6 +22,7 @@ import android.text.style.StrikethroughSpan;
 import android.util.Log;
 import android.util.Pair;
 import android.view.LayoutInflater;
+import android.graphics.drawable.Drawable;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Filter;
@@ -34,11 +35,13 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
+import androidx.core.graphics.ColorUtils;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import net.gsantner.markor.R;
 import net.gsantner.markor.frontend.textview.TextViewUtils;
+import net.gsantner.markor.util.FileColors;
 import net.gsantner.opoc.util.GsCollectionUtils;
 import net.gsantner.opoc.util.GsContextUtils;
 import net.gsantner.opoc.util.GsFileUtils;
@@ -92,6 +95,7 @@ public class GsFileBrowserListAdapter extends RecyclerView.Adapter<GsFileBrowser
     private File _currentFolder;
     private File _goUpFile;
     private final Context _context;
+    private final FileColors _fileColors;
     private final StringFilter _filter;
     private RecyclerView _recyclerView;
     private LinearLayoutManager _layoutManager;
@@ -116,6 +120,7 @@ public class GsFileBrowserListAdapter extends RecyclerView.Adapter<GsFileBrowser
         _adapterDataFiltered = new ArrayList<>();
         _currentSelection = new HashSet<>();
         _context = context;
+        _fileColors = new FileColors(context);
         GsContextUtils.instance.setAppLocale(_context, Locale.getDefault());
 
         // Prevents view flicker - https://stackoverflow.com/a/32488059
@@ -185,6 +190,10 @@ public class GsFileBrowserListAdapter extends RecyclerView.Adapter<GsFileBrowser
     public FilesystemViewerViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
         View v = LayoutInflater.from(parent.getContext()).inflate(R.layout.opoc_filesystem_item, parent, false);
         return new FilesystemViewerViewHolder(v);
+    }
+
+    public FileColors getFileColors() {
+        return _fileColors;
     }
 
     public boolean isCurrentFolderEmpty() {
@@ -263,6 +272,15 @@ public class GsFileBrowserListAdapter extends RecyclerView.Adapter<GsFileBrowser
             int dp = (int) (_dopt.itemSidePadding * _context.getResources().getDisplayMetrics().density);
             holder.itemRoot.setPadding(dp, holder.itemRoot.getPaddingTop(), dp, holder.itemRoot.getPaddingBottom());
         }
+
+        // Per-file color (ColorNote style). Background is chosen from the primary text color: light text = dark theme
+        final boolean darkRows = ColorUtils.calculateLuminance(ContextCompat.getColor(_context, _dopt.primaryTextColor)) > 0.5;
+        FileColors.applyToRow(
+                holder.itemRoot,
+                isGoUp ? FileColors.NONE : _fileColors.get(file),
+                darkRows,
+                holder.originalBackground
+        );
 
         final int descriptionRes = isSelected ? _dopt.contentDescriptionSelected : (displayFile.isDirectory() ? _dopt.contentDescriptionFolder : _dopt.contentDescriptionFile);
         holder.itemRoot.setContentDescription((descriptionRes != 0 ? (_context.getString(descriptionRes) + " ") : "") + titleText + " " + holder.description.getText().toString());
@@ -680,6 +698,8 @@ public class GsFileBrowserListAdapter extends RecyclerView.Adapter<GsFileBrowser
                         if (holder != null) {
                             GsContextUtils.blinkView2(holder.itemView);
                             holder.itemView.requestFocus();
+                            // The blink animation overwrites the row background; rebind afterwards to restore the file color
+                            _recyclerView.postDelayed(() -> notifyItemChanged(pos), 700);
                         }
                     }, 400));
             return true;
@@ -919,6 +939,7 @@ public class GsFileBrowserListAdapter extends RecyclerView.Adapter<GsFileBrowser
         //## UI Binding
         //########################
         final LinearLayout itemRoot;
+        final Drawable originalBackground;
         final ImageView image;
         final TextView title;
         final TextView description;
@@ -929,6 +950,7 @@ public class GsFileBrowserListAdapter extends RecyclerView.Adapter<GsFileBrowser
         FilesystemViewerViewHolder(final View row) {
             super(row);
             itemRoot = row.findViewById(R.id.opoc_filesystem_item__root);
+            originalBackground = itemRoot.getBackground();
             image = row.findViewById(R.id.opoc_filesystem_item__image);
             title = row.findViewById(R.id.opoc_filesystem_item__title);
             description = row.findViewById(R.id.opoc_filesystem_item__description);
